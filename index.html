@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KSVT — Compresor de Imágenes</title>
+<style>
+/* ===== KSVT §4.2 Primitivas ===== */
+:root{
+  --gray-900:#1d1d1d; --gray-850:#232323; --gray-800:#2e2e2e; --gray-750:#383838;
+  --gray-700:#404040; --gray-600:#4c4c4c; --gray-500:#818181; --gray-400:#a1a1a1;
+  --gray-300:#b4b4b4; --gray-100:#d6d6d6; --white:#ffffff;
+  --orange-300:#ff8f78; --orange-400:#f56b50; --orange-500:#e8543a;
+  --orange-600:#c94328; --orange-700:#b83f2a; --orange-950:#2a0d07;
+  --green-500:#8fb46a; --green-950:#16210c;
+  --red-surface:#3a2323; --red-on-surface:#f0c0b6;
+}
+/* ===== KSVT §4.3 Semánticas ===== */
+:root{
+  --surface-sunken:var(--gray-850); --surface-canvas:var(--gray-800);
+  --surface-panel:var(--gray-750);  --surface-raised:var(--gray-700); --surface-hover:var(--gray-600);
+  --border-default:var(--gray-900); --border-strong:var(--gray-600);
+  --border-accent:var(--orange-700);
+  --text-primary:var(--gray-100);   --text-secondary:var(--gray-300);
+  --text-tertiary:var(--gray-400);  --text-on-accent:var(--white);
+  --text-accent:var(--orange-300);
+  --accent:var(--orange-500); --accent-hover:var(--orange-400);
+  --accent-fill:var(--orange-600);
+  --accent-wash:rgba(232,84,58,.08); --accent-glow:rgba(232,84,58,.35);
+  --status-success:var(--green-500); --status-on-success:var(--green-950);
+  --status-danger-surface:var(--red-surface); --status-danger-text:var(--red-on-surface);
+  --focus-ring:0 0 0 2px var(--accent); --focus-offset:1px;
+  --space-1:4px; --space-2:6px; --space-3:10px; --space-4:14px; --space-5:20px; --space-6:28px;
+  --radius:2px; --radius-pill:999px; --border-width:1px;
+  --border:var(--border-width) solid var(--border-default);
+  --font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+  --font-size-action:13px; --font-size-body:12px; --font-size-label:11px; --font-size-support:10px;
+  --font-weight-regular:400; --font-weight-strong:600;
+  --line-height:1.45; --line-height-prose:1.5; --tracking-section:.1em;
+  --duration-instant:80ms; --duration-fast:120ms; --duration-move:140ms; --duration-fade:180ms;
+  --ease-move:cubic-bezier(.2,.8,.3,1);
+  --lift-hover:2px; --press-scale:.97;
+  --shadow-hover:0 2px 8px var(--accent-glow);
+  --shadow-float:0 10px 28px rgba(0,0,0,.45);
+  --panel-width-left:288px; --control-height:28px; --control-height-compact:24px;
+  --control-padding:5px 7px; --slider-track:3px; --slider-thumb:12px;
+}
+
+/* ===== Base §10 ===== */
+*{box-sizing:border-box;}
+html,body{height:100%;margin:0;}
+body{
+  background:var(--surface-canvas); color:var(--text-primary);
+  font:var(--font-weight-regular) var(--font-size-body)/var(--line-height) var(--font-family);
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+button,input{font:inherit;}
+:focus-visible{outline:none;box-shadow:var(--focus-ring);outline-offset:var(--focus-offset);}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important;}}
+
+.shell{display:grid;grid-template-columns:var(--panel-width-left) 1fr;height:100%;overflow:hidden;}
+.panel{background:var(--surface-panel);border-right:var(--border);overflow-y:auto;display:flex;flex-direction:column;}
+.workspace{display:flex;flex-direction:column;overflow:hidden;background:var(--surface-canvas);}
+
+.group{padding:var(--space-3) var(--space-3) var(--space-4);border-bottom:var(--border);flex-shrink:0;}
+.group h2{
+  margin:0 0 var(--space-3);font-size:var(--font-size-support);
+  font-weight:var(--font-weight-strong);letter-spacing:var(--tracking-section);
+  text-transform:uppercase;color:var(--text-tertiary);
+}
+.group.action{margin-top:auto;border-bottom:none;border-top:var(--border);}
+
+/* ===== Zona de arrastre §7 ===== */
+.dropzone{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-2);
+  padding:22px 10px;border:1px dashed var(--border-strong);border-radius:var(--radius);
+  cursor:pointer;text-align:center;
+  transition:border-color var(--duration-fast),background var(--duration-fast);
+}
+.dropzone:hover,.dropzone.over{border-color:var(--accent);background:var(--accent-wash);}
+.drop-icon{font-size:20px;color:var(--text-tertiary);transition:color var(--duration-fast);}
+.dropzone:hover .drop-icon,.dropzone.over .drop-icon{color:var(--accent);}
+.drop-main{font-size:var(--font-size-body);color:var(--text-primary);}
+.drop-sub{font-size:var(--font-size-support);color:var(--text-tertiary);}
+#fi{display:none;}
+
+/* ===== Enlace discreto §7 ===== */
+.link{
+  background:none;border:none;padding:0;margin-top:var(--space-3);
+  font-size:var(--font-size-support);color:var(--text-secondary);
+  text-decoration:underline;cursor:pointer;
+}
+.link:hover{color:var(--text-primary);}
+
+/* ===== Controles ===== */
+.row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);}
+.label{font-size:var(--font-size-label);color:var(--text-secondary);}
+.help{font-size:var(--font-size-support);color:var(--text-tertiary);margin-top:var(--space-1);line-height:var(--line-height-prose);}
+.divider{height:1px;background:var(--border-default);margin:var(--space-3) 0;}
+.muted{opacity:.4;pointer-events:none;}
+
+.num{display:inline-flex;align-items:center;height:var(--control-height);
+  background:var(--surface-sunken);border:var(--border);border-radius:var(--radius);overflow:hidden;}
+.num input{
+  width:48px;height:100%;padding:var(--control-padding);background:transparent;border:none;
+  color:var(--text-primary);font-size:var(--font-size-body);
+  font-variant-numeric:tabular-nums;text-align:right;-moz-appearance:textfield;
+}
+.num input::-webkit-inner-spin-button,.num input::-webkit-outer-spin-button{-webkit-appearance:none;}
+.num input:focus{outline:none;}
+.num:focus-within{border-color:var(--border-strong);box-shadow:var(--focus-ring);}
+.unit{padding:0 var(--space-2) 0 0;font-size:var(--font-size-label);color:var(--text-tertiary);pointer-events:none;user-select:none;}
+
+.slider-wrap{display:flex;align-items:center;gap:var(--space-2);flex:1;}
+.slider-wrap input[type=range]{flex:1;height:var(--slider-track);-webkit-appearance:none;appearance:none;
+  background:var(--surface-sunken);border-radius:1px;cursor:pointer;}
+.slider-wrap input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:var(--slider-thumb);height:var(--slider-thumb);
+  border-radius:50%;background:var(--accent);
+  transition:background var(--duration-fast),transform var(--duration-fast);}
+.slider-wrap input[type=range]::-webkit-slider-thumb:hover{background:var(--accent-hover);transform:scale(1.2);}
+.slider-wrap input[type=range]::-moz-range-thumb{width:var(--slider-thumb);height:var(--slider-thumb);border:none;border-radius:50%;background:var(--accent);}
+.slider-wrap input[type=range]:focus{outline:none;}
+.slider-wrap input[type=range]:focus-visible{box-shadow:var(--focus-ring);}
+
+.chips{display:flex;gap:var(--space-1);}
+.chip{height:var(--control-height);padding:var(--control-padding);background:var(--surface-raised);
+  border:var(--border);border-radius:var(--radius);font-size:var(--font-size-label);
+  color:var(--text-secondary);cursor:pointer;user-select:none;
+  transition:background var(--duration-fast),color var(--duration-fast),border-color var(--duration-fast);}
+.chip:hover{background:var(--surface-hover);color:var(--text-primary);}
+.chip.active{background:var(--accent-wash);border-color:var(--border-accent);color:var(--text-accent);}
+
+/* ===== Botones §7 ===== */
+.b{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);
+  height:var(--control-height);padding:var(--control-padding);background:var(--surface-raised);
+  color:var(--text-primary);border:var(--border);border-radius:var(--radius);
+  font-size:var(--font-size-action);font-weight:var(--font-weight-strong);cursor:pointer;
+  user-select:none;white-space:nowrap;
+  transition:background var(--duration-fast),box-shadow var(--duration-fast),transform var(--duration-fast);}
+.b:hover{background:var(--surface-hover);color:var(--text-primary);
+  box-shadow:var(--shadow-hover);transform:translateY(calc(-1 * var(--lift-hover)));}
+.b:active{transform:scale(var(--press-scale));box-shadow:none;}
+.b.deliver{border-radius:var(--radius-pill);}
+.b.go{background:var(--accent-fill);color:var(--text-on-accent);border-color:var(--border-accent);}
+.b.go:hover{background:var(--accent-hover);}
+.b.wide{width:100%;}
+.b:disabled{opacity:.45;cursor:not-allowed;pointer-events:none;}
+
+/* ===== Resumen de operación §7 ===== */
+.summary{background:var(--surface-sunken);border:var(--border);border-radius:var(--radius);
+  padding:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2);margin-bottom:var(--space-3);}
+.srow{display:flex;justify-content:space-between;align-items:baseline;gap:var(--space-3);}
+.slabel{font-size:var(--font-size-support);color:var(--text-tertiary);}
+.sval{font-size:var(--font-size-body);color:var(--text-primary);
+  font-variant-numeric:tabular-nums;font-weight:var(--font-weight-strong);}
+.sval.green{color:var(--status-success);}
+
+/* ===== Barra global ===== */
+.gbar{padding:var(--space-2) var(--space-4);background:var(--surface-panel);
+  border-bottom:var(--border);display:none;}
+.gbar.on{display:block;}
+.gbar-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-1);}
+.gbar-label{font-size:var(--font-size-label);color:var(--text-secondary);}
+.gbar-count{font-size:var(--font-size-support);color:var(--text-tertiary);font-variant-numeric:tabular-nums;}
+.gtrack{height:3px;background:var(--surface-sunken);border-radius:2px;overflow:hidden;}
+.gfill{height:100%;background:var(--accent);border-radius:2px;width:0%;
+  transition:width var(--duration-move) var(--ease-move);}
+
+/* ===== Estado vacío ===== */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-3);
+  height:100%;
+  background-image:
+    linear-gradient(45deg,rgba(0,0,0,.1) 25%,transparent 25%),
+    linear-gradient(-45deg,rgba(0,0,0,.1) 25%,transparent 25%),
+    linear-gradient(45deg,transparent 75%,rgba(0,0,0,.1) 75%),
+    linear-gradient(-45deg,transparent 75%,rgba(0,0,0,.1) 75%);
+  background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0;}
+.empty-icon{font-size:32px;opacity:.2;}
+.empty-label{font-size:var(--font-size-label);color:var(--text-tertiary);}
+
+/* ===== Tabla ===== */
+.table-wrap{flex:1;overflow-y:auto;}
+table{width:100%;border-collapse:collapse;}
+thead th{position:sticky;top:0;z-index:1;padding:var(--space-2) var(--space-3);
+  background:var(--surface-panel);border-bottom:var(--border);
+  font-size:var(--font-size-support);font-weight:var(--font-weight-strong);
+  letter-spacing:var(--tracking-section);text-transform:uppercase;color:var(--text-tertiary);
+  text-align:left;white-space:nowrap;}
+th.r{text-align:right;}
+tbody tr{border-bottom:var(--border);}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:rgba(255,255,255,.02);}
+td{padding:var(--space-2) var(--space-3);vertical-align:middle;}
+
+.c-thumb{width:44px;padding-right:0;}
+.thumb,.thumb-ph{width:32px;height:32px;border-radius:var(--radius);border:var(--border);
+  background:var(--surface-sunken);display:block;object-fit:cover;}
+.thumb-ph{display:flex;align-items:center;justify-content:center;
+  font-size:12px;color:var(--text-tertiary);}
+.thumb-ph.load{animation:pulse 1.1s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:.35;}50%{opacity:.9;}}
+
+.c-name{min-width:0;}
+.namecell{display:flex;flex-direction:column;gap:3px;}
+.fname{font-size:var(--font-size-body);color:var(--text-primary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:380px;}
+.fsub{font-size:var(--font-size-support);color:var(--text-tertiary);font-variant-numeric:tabular-nums;}
+.fsub.err{color:var(--status-danger-text);}
+.ptrack{height:2px;background:var(--surface-sunken);border-radius:1px;overflow:hidden;display:none;}
+.ptrack.on{display:block;}
+.pfill{height:100%;background:var(--accent);border-radius:1px;width:0%;
+  transition:width var(--duration-instant) linear;}
+.pfill.ok{background:var(--status-success);}
+.pfill.bad{background:var(--status-danger-text);}
+.pfill.indet{width:35%;animation:slide 1.1s ease-in-out infinite;}
+@keyframes slide{0%{margin-left:-35%;}100%{margin-left:100%;}}
+
+.c-num{text-align:right;white-space:nowrap;}
+.sz{font-size:var(--font-size-body);color:var(--text-secondary);font-variant-numeric:tabular-nums;}
+.red{font-size:var(--font-size-body);font-weight:var(--font-weight-strong);
+  font-variant-numeric:tabular-nums;color:var(--status-success);}
+.red.stale{color:var(--text-tertiary);font-weight:var(--font-weight-regular);}
+.red.up{color:var(--text-accent);}
+.sval.up{color:var(--text-accent);}
+.red.bad{font-size:var(--font-size-support);font-weight:var(--font-weight-regular);color:var(--status-danger-text);}
+.red.wait{font-size:var(--font-size-support);font-weight:var(--font-weight-regular);color:var(--text-tertiary);}
+
+.c-act{width:64px;white-space:nowrap;text-align:right;padding-left:0;}
+.ib{display:inline-flex;align-items:center;justify-content:center;
+  width:var(--control-height-compact);height:var(--control-height-compact);
+  background:transparent;border:var(--border);border-radius:var(--radius);
+  color:var(--text-tertiary);cursor:pointer;font-size:13px;line-height:1;margin-left:var(--space-1);
+  transition:background var(--duration-fast),color var(--duration-fast),border-color var(--duration-fast);}
+.ib:hover{background:var(--accent-wash);border-color:var(--border-accent);color:var(--text-accent);}
+.ib.rm:hover{background:var(--status-danger-surface);border-color:var(--border-accent);color:var(--status-danger-text);}
+.ib:disabled{opacity:.25;pointer-events:none;}
+
+/* ===== Aviso temporal §7 ===== */
+.toasts{position:fixed;bottom:var(--space-5);left:50%;transform:translateX(-50%);z-index:100;
+  display:flex;flex-direction:column;gap:var(--space-2);pointer-events:none;align-items:center;}
+.toast{background:var(--status-danger-surface);border:1px solid var(--border-accent);
+  border-radius:var(--radius-pill);padding:var(--space-2) var(--space-4);
+  font-size:var(--font-size-body);color:var(--status-danger-text);max-width:70vw;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  animation:tin var(--duration-fade) ease forwards,tout var(--duration-fade) ease 4.4s forwards;}
+@keyframes tin{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+@keyframes tout{from{opacity:1;}to{opacity:0;}}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <div class="panel">
+
+    <div class="group">
+      <h2>Entrada</h2>
+      <div class="dropzone" id="dz" tabindex="0" role="button" aria-label="Arrastra imágenes o haz clic para seleccionarlas">
+        <div class="drop-icon">&#8853;</div>
+        <div class="drop-main">Arrastra las imágenes aquí</div>
+        <div class="drop-sub">o haz clic &middot; JPEG, PNG, WebP, GIF</div>
+      </div>
+      <input type="file" id="fi" multiple accept="image/*">
+      <button class="link" id="clear-all" style="display:none;">Quitar todas</button>
+    </div>
+
+    <div class="group">
+      <h2>Compresión</h2>
+      <div id="quality-block">
+        <div class="row">
+          <label class="label" for="q-slider">Calidad</label>
+          <div class="slider-wrap">
+            <input type="range" id="q-slider" min="1" max="100" value="80" step="1">
+            <div class="num"><input type="number" id="q-num" min="1" max="100" value="80"><span class="unit">%</span></div>
+          </div>
+        </div>
+        <div class="help" id="q-help">Mayor valor conserva más detalle y pesa más.</div>
+      </div>
+      <div class="divider"></div>
+      <div class="row">
+        <label class="label" for="dim-num">Ancho/alto máx.</label>
+        <div class="num"><input type="number" id="dim-num" min="100" max="12000" value="4096" step="100"><span class="unit">px</span></div>
+      </div>
+      <div class="help">Las imágenes más pequeñas no se agrandan.</div>
+    </div>
+
+    <div class="group">
+      <h2>Formato de salida</h2>
+      <div class="chips" id="fmt">
+        <button class="chip active" data-fmt="image/jpeg">JPEG</button>
+        <button class="chip" data-fmt="image/webp">WebP</button>
+        <button class="chip" data-fmt="image/png">PNG</button>
+      </div>
+      <div class="help" id="fmt-help">WebP da el mejor peso. JPEG abre en cualquier parte.</div>
+    </div>
+
+    <div class="group action">
+      <h2 id="act-title">Salida</h2>
+      <div class="summary">
+        <div class="srow"><span class="slabel" id="l1">Imágenes listas</span><span class="sval" id="v1">0</span></div>
+        <div class="srow"><span class="slabel" id="l2">Peso original</span><span class="sval" id="v2">&mdash;</span></div>
+        <div class="srow"><span class="slabel" id="l3">Peso final</span><span class="sval" id="v3">&mdash;</span></div>
+        <div class="srow"><span class="slabel" id="l4">Ahorro</span><span class="sval green" id="v4">&mdash;</span></div>
+      </div>
+      <button class="b go wide" id="primary" disabled>Comprimir</button>
+      <button class="b wide" id="secondary" style="display:none;margin-top:var(--space-2);">Descargar todo en ZIP</button>
+    </div>
+
+  </div>
+
+  <div class="workspace" id="ws">
+    <div class="gbar" id="gbar">
+      <div class="gbar-head">
+        <span class="gbar-label" id="gbar-label">Comprimiendo</span>
+        <span class="gbar-count" id="gbar-count">0 / 0</span>
+      </div>
+      <div class="gtrack"><div class="gfill" id="gfill"></div></div>
+    </div>
+
+    <div class="empty" id="empty">
+      <div class="empty-icon">&#9707;</div>
+      <div class="empty-label">Arrastra imágenes para empezar</div>
+    </div>
+
+    <div class="table-wrap" id="tw" style="display:none;">
+      <table>
+        <thead><tr>
+          <th class="c-thumb"></th>
+          <th>Archivo</th>
+          <th class="r">Original</th>
+          <th class="r">Reducción</th>
+          <th class="r">Final</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tb"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+/* ============================================================
+   KSVT — Compresor de Imágenes
+   Copyright (c) 2024 Koru Studio. Licencia MIT.
+
+   Sin dependencias externas. Sin red. Sin almacenamiento.
+   Motor de compresión: createImageBitmap + OffscreenCanvas,
+   ejecutado en Web Worker instanciado desde Blob.
+   Escritor ZIP (método STORE) propio, incluido más abajo.
+   ============================================================ */
+'use strict';
+
+/* ---------- 0. Cuantizador de color y codificador PNG indexado ----------
+   El canvas del navegador solo escribe PNG en RGBA de 8 bits por canal.
+   Una imagen que venía con paleta indexada se hincha al pasar por ahí.
+   Esto reduce la imagen a una paleta y la escribe indexada, que es lo
+   que hace que un PNG pese de verdad menos.
+   Las mismas funciones se usan en el worker y en el hilo principal:
+   se serializan con toString() para no mantener dos copias. */
+
+/* ============================================================
+   Cuantizador de color y codificador PNG indexado.
+   Escrito para correr igual en un Web Worker y en Node:
+   solo usa Uint8Array, Uint32Array y CompressionStream.
+   ============================================================ */
+
+function pqTable(){
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++){
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+}
+function pqCrc32(u8){
+  if (!pqCrc32.t) pqCrc32.t = pqTable();
+  const T = pqCrc32.t;
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) c = T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+/* Clave de 20 bits: 5 por canal. Agrupa colores casi idénticos
+   para que el histograma quepa en memoria con imágenes grandes. */
+function pqKey(r,g,b,a){
+  return ((r>>3)<<15) | ((g>>3)<<10) | ((b>>3)<<5) | (a>>3);
+}
+
+/* Corte mediano. Devuelve cajas: rangos sobre el array de entradas. */
+function pqMedianCut(idx, col, cnt, maxColors){
+  let boxes = [{ lo:0, hi:idx.length }];
+  const spread = box => {
+    const mn = [255,255,255,255], mx = [0,0,0,0];
+    for (let i = box.lo; i < box.hi; i++){
+      const e = idx[i] * 4;
+      for (let c = 0; c < 4; c++){
+        const v = col[e+c];
+        if (v < mn[c]) mn[c] = v;
+        if (v > mx[c]) mx[c] = v;
+      }
+    }
+    let ch = 0, best = -1;
+    /* El alfa pesa más: mezclar opaco con transparente se nota mucho más
+       que mezclar dos rojos parecidos. */
+    const w = [1, 1.2, 0.8, 3];
+    for (let c = 0; c < 4; c++){
+      const d = (mx[c] - mn[c]) * w[c];
+      if (d > best){ best = d; ch = c; }
+    }
+    return { ch, size: best };
+  };
+
+  while (boxes.length < maxColors){
+    let target = -1, bestSize = 0;
+    for (let i = 0; i < boxes.length; i++){
+      if (boxes[i].hi - boxes[i].lo < 2) continue;
+      const s = spread(boxes[i]).size;
+      if (s > bestSize){ bestSize = s; target = i; }
+    }
+    if (target < 0) break;
+
+    const box = boxes[target];
+    const ch = spread(box).ch;
+    const slice = Array.prototype.slice.call(idx.subarray(box.lo, box.hi));
+    slice.sort((p,q) => col[p*4+ch] - col[q*4+ch]);
+    idx.set(slice, box.lo);
+
+    let total = 0;
+    for (let i = box.lo; i < box.hi; i++) total += cnt[idx[i]];
+    let acc = 0, cut = box.lo;
+    for (let i = box.lo; i < box.hi - 1; i++){
+      acc += cnt[idx[i]];
+      if (acc * 2 >= total){ cut = i + 1; break; }
+      cut = i + 1;
+    }
+    if (cut <= box.lo || cut >= box.hi) break;
+    boxes.splice(target, 1, { lo:box.lo, hi:cut }, { lo:cut, hi:box.hi });
+  }
+  return boxes;
+}
+
+/* Construye paleta y tabla de consulta. Sin difuminado: cada bucket
+   del histograma cae en exactamente una caja, así que no hace falta
+   buscar el color más cercano. */
+function pqQuantize(rgba, maxColors){
+  const counts = new Uint32Array(1 << 20);
+  const n = rgba.length >> 2;
+  for (let p = 0; p < n; p++){
+    const o = p << 2;
+    counts[pqKey(rgba[o], rgba[o+1], rgba[o+2], rgba[o+3])]++;
+  }
+
+  let occ = 0;
+  for (let k = 0; k < counts.length; k++) if (counts[k]) occ++;
+  if (occ === 0) return null;
+
+  const bucketOf = new Int32Array(1 << 20).fill(-1);
+  const keys = new Uint32Array(occ);
+  const cnt  = new Uint32Array(occ);
+  let j = 0;
+  for (let k = 0; k < counts.length; k++){
+    if (!counts[k]) continue;
+    bucketOf[k] = j; keys[j] = k; cnt[j] = counts[k]; j++;
+  }
+
+  /* Colores reales promediados por bucket, no el centro del bucket:
+     un naranja de marca no debe desplazarse siete valores. */
+  const sums = new Float64Array(occ * 4);
+  for (let p = 0; p < n; p++){
+    const o = p << 2;
+    const b = bucketOf[pqKey(rgba[o], rgba[o+1], rgba[o+2], rgba[o+3])] * 4;
+    sums[b]   += rgba[o];
+    sums[b+1] += rgba[o+1];
+    sums[b+2] += rgba[o+2];
+    sums[b+3] += rgba[o+3];
+  }
+  const col = new Uint8Array(occ * 4);
+  for (let i = 0; i < occ; i++){
+    const c = cnt[i];
+    for (let k = 0; k < 4; k++) col[i*4+k] = Math.round(sums[i*4+k] / c);
+  }
+
+  const order = new Uint32Array(occ);
+  for (let i = 0; i < occ; i++) order[i] = i;
+  const boxes = pqMedianCut(order, col, cnt, maxColors);
+
+  const pal = new Uint8Array(boxes.length * 4);
+  const lut = new Int32Array(1 << 20).fill(0);
+  for (let bi = 0; bi < boxes.length; bi++){
+    const box = boxes[bi];
+    let tw = 0, s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+    for (let i = box.lo; i < box.hi; i++){
+      const e = order[i], w = cnt[e];
+      tw += w;
+      s0 += col[e*4]   * w; s1 += col[e*4+1] * w;
+      s2 += col[e*4+2] * w; s3 += col[e*4+3] * w;
+    }
+    pal[bi*4]   = Math.round(s0 / tw); pal[bi*4+1] = Math.round(s1 / tw);
+    pal[bi*4+2] = Math.round(s2 / tw); pal[bi*4+3] = Math.round(s3 / tw);
+    for (let i = box.lo; i < box.hi; i++) lut[keys[order[i]]] = bi;
+  }
+  return { pal, lut, size: boxes.length };
+}
+
+/* Las entradas con alfa van primero: tRNS solo necesita llegar
+   hasta la última no opaca. */
+function pqSortPalette(q){
+  const n = q.size;
+  const ord = Array.from({length:n}, (_,i) => i)
+    .sort((a,b) => q.pal[a*4+3] - q.pal[b*4+3]);
+  const pal = new Uint8Array(n * 4);
+  const remap = new Int32Array(n);
+  for (let i = 0; i < n; i++){
+    const s = ord[i];
+    remap[s] = i;
+    pal.set(q.pal.subarray(s*4, s*4+4), i*4);
+  }
+  for (let k = 0; k < q.lut.length; k++) q.lut[k] = remap[q.lut[k]];
+  q.pal = pal;
+  return q;
+}
+
+function pqChunk(tag, data){
+  const t = new TextEncoder().encode(tag);
+  const out = new Uint8Array(12 + data.length);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, data.length, false);
+  out.set(t, 4);
+  out.set(data, 8);
+  dv.setUint32(8 + data.length, pqCrc32(out.subarray(4, 8 + data.length)), false);
+  return out;
+}
+
+async function pqDeflate(u8){
+  const cs = new CompressionStream('deflate');           /* zlib, como exige PNG */
+  const w = cs.writable.getWriter();
+  w.write(u8); w.close();
+  const parts = [];
+  const rd = cs.readable.getReader();
+  for (;;){
+    const { value, done } = await rd.read();
+    if (done) break;
+    parts.push(value);
+  }
+  let len = 0; for (const p of parts) len += p.length;
+  const out = new Uint8Array(len);
+  let o = 0; for (const p of parts){ out.set(p, o); o += p.length; }
+  return out;
+}
+
+async function pqEncodePNG(rgba, w, h, maxColors){
+  let q = pqQuantize(rgba, maxColors);
+  if (!q) return null;
+  q = pqSortPalette(q);
+  const n = q.size;
+
+  const depth = n <= 2 ? 1 : n <= 4 ? 2 : n <= 16 ? 4 : 8;
+  const perByte = 8 / depth;
+  const rowBytes = Math.ceil(w / perByte);
+
+  /* Filtro 0 en toda la imagen: en color indexado los filtros
+     mezclan índices, que no son magnitudes, y empeoran el deflate. */
+  const raw = new Uint8Array((rowBytes + 1) * h);
+  let o = 0;
+  for (let y = 0; y < h; y++){
+    raw[o++] = 0;
+    let acc = 0, bits = 0, x = 0;
+    for (; x < w; x++){
+      const p = (y * w + x) << 2;
+      const idx = q.lut[pqKey(rgba[p], rgba[p+1], rgba[p+2], rgba[p+3])];
+      acc = (acc << depth) | idx;
+      bits += depth;
+      if (bits === 8){ raw[o++] = acc; acc = 0; bits = 0; }
+    }
+    if (bits) raw[o++] = acc << (8 - bits);
+  }
+
+  const ihdr = new Uint8Array(13);
+  const iv = new DataView(ihdr.buffer);
+  iv.setUint32(0, w, false); iv.setUint32(4, h, false);
+  ihdr[8] = depth; ihdr[9] = 3; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+
+  const plte = new Uint8Array(n * 3);
+  for (let i = 0; i < n; i++){
+    plte[i*3] = q.pal[i*4]; plte[i*3+1] = q.pal[i*4+1]; plte[i*3+2] = q.pal[i*4+2];
+  }
+
+  let trnsLen = 0;
+  for (let i = 0; i < n; i++) if (q.pal[i*4+3] < 255) trnsLen = i + 1;
+  const trns = new Uint8Array(trnsLen);
+  for (let i = 0; i < trnsLen; i++) trns[i] = q.pal[i*4+3];
+
+  const idat = await pqDeflate(raw);
+
+  const parts = [
+    new Uint8Array([137,80,78,71,13,10,26,10]),
+    pqChunk('IHDR', ihdr),
+    pqChunk('PLTE', plte)
+  ];
+  if (trnsLen) parts.push(pqChunk('tRNS', trns));
+  parts.push(pqChunk('IDAT', idat));
+  parts.push(pqChunk('IEND', new Uint8Array(0)));
+
+  let len = 0; for (const p of parts) len += p.length;
+  const out = new Uint8Array(len);
+  let q2 = 0; for (const p of parts){ out.set(p, q2); q2 += p.length; }
+  return out;
+}
+
+const PQ_SRC = [pqTable, pqCrc32, pqKey, pqMedianCut, pqQuantize,
+                pqSortPalette, pqChunk, pqDeflate, pqEncodePNG]
+               .map(f => f.toString()).join('\n');
+
+/* Calidad a número de colores. Una sola perilla, significado según formato. */
+function colorsFor(q){
+  return Math.max(2, Math.min(256, Math.round(256 * Math.pow(q/100, 1.5))));
+}
+
+/* ---------- 1. Worker: decodifica, redimensiona y codifica ---------- */
+const WORKER_SRC = PQ_SRC + "\n" + [
+"self.onmessage = async function(e){",
+"  var d = e.data, id = d.id;",
+"  function say(p){ self.postMessage({type:'progress', id:id, percent:p}); }",
+"  var bmp = null;",
+"  try {",
+"    if (typeof createImageBitmap !== 'function') throw new Error('createImageBitmap no existe en este worker');",
+"    if (typeof OffscreenCanvas !== 'function') throw new Error('OffscreenCanvas no existe en este worker');",
+"    if (typeof OffscreenCanvas.prototype.convertToBlob !== 'function') throw new Error('convertToBlob no existe en este worker');",
+"    var blob = new Blob([d.buffer], {type:d.mimeType});",
+"    say(10);",
+"    try { bmp = await createImageBitmap(blob); }",
+"    catch(err){ throw new Error('No se pudo decodificar: ' + ((err && err.message) ? err.message : err)); }",
+"    say(45);",
+"    var w = bmp.width, h = bmp.height;",
+"    if (!w || !h) throw new Error('La imagen no tiene dimensiones válidas');",
+"    var m = d.maxDim;",
+"    if (w > m || h > m){ var s = Math.min(m/w, m/h); w = Math.max(1, Math.round(w*s)); h = Math.max(1, Math.round(h*s)); }",
+"    var cv = new OffscreenCanvas(w, h);",
+"    var cx = cv.getContext('2d');",
+"    if (!cx) throw new Error('No se pudo preparar el lienzo de dibujo');",
+"    cx.imageSmoothingEnabled = true;",
+"    cx.imageSmoothingQuality = 'high';",
+"    if (d.targetMime === 'image/jpeg'){ cx.fillStyle = '#ffffff'; cx.fillRect(0,0,w,h); }",
+"    cx.drawImage(bmp, 0, 0, w, h);",
+"    bmp.close(); bmp = null;",
+"    say(70);",
+"    var opts = {type: d.targetMime};",
+"    if (d.targetMime !== 'image/png') opts.quality = d.quality / 100;",
+"    var out;",
+"    try { out = await cv.convertToBlob(opts); }",
+"    catch(err){ throw new Error('No se pudo codificar: ' + ((err && err.message) ? err.message : err)); }",
+"    if (!out) throw new Error('El navegador no devolvió la imagen codificada');",
+"    if (out.type && out.type !== d.targetMime) throw new Error('Este navegador no guarda en ' + d.targetMime);",
+"    var ab = await out.arrayBuffer();",
+"    if (d.targetMime === 'image/png' && d.maxColors > 0 && typeof CompressionStream === 'function'){",
+"      say(80);",
+"      try {",
+"        var px = cx.getImageData(0, 0, w, h).data;",
+"        var qz = await pqEncodePNG(px, w, h, d.maxColors);",
+"        if (qz && qz.byteLength < ab.byteLength) ab = qz.buffer;",
+"      } catch(_){ /* si la cuantización falla queda el PNG del navegador */ }",
+"    }",
+"    say(100);",
+"    self.postMessage({type:'done', id:id, buffer:ab, size:ab.byteLength, width:w, height:h}, [ab]);",
+"  } catch(err){",
+"    if (bmp) { try { bmp.close(); } catch(_){} }",
+"    var msg = (err && err.message) ? err.message : String(err);",
+"    self.postMessage({type:'error', id:id, message: msg});",
+"  }",
+"};"
+].join("\n");
+
+const WORKER_URL = URL.createObjectURL(new Blob([WORKER_SRC], {type:'application/javascript'}));
+
+/* Prueba real del worker con una imagen de 2x2 px.
+   No se pregunta al hilo principal por APIs que vive en otro ámbito:
+   se ejecuta la tubería completa y se mira si devuelve bytes. */
+const PROBE_PNG = new Uint8Array([
+  137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,2,0,0,0,2,8,2,0,0,0,
+  253,212,154,115,0,0,0,18,73,68,65,84,120,218,99,120,17,98,245,255,255,127,
+  6,8,5,0,59,31,8,231,246,139,246,195,0,0,0,0,73,69,78,68,174,66,96,130
+]);
+
+let ENGINE = 'main';   /* 'worker' tras una prueba satisfactoria */
+let engineReason = '';
+
+function probeWorker(){
+  return new Promise(resolve => {
+    if (typeof Worker !== 'function'){ resolve({ok:false, why:'este navegador no permite workers'}); return; }
+    let w;
+    try { w = new Worker(WORKER_URL); }
+    catch(err){ resolve({ok:false, why:'no se pudo crear el worker'}); return; }
+    const kill = (ok, why) => {
+      clearTimeout(timer);
+      try { w.terminate(); } catch(_){}
+      resolve({ok, why});
+    };
+    const timer = setTimeout(() => kill(false, 'el worker no respondió'), 6000);
+    w.onmessage = ev => {
+      const m = ev.data;
+      if (m.type === 'progress') return;
+      if (m.type === 'done' && m.size > 0) kill(true, '');
+      else kill(false, m.message || 'la prueba no devolvió imagen');
+    };
+    w.onerror = ev => kill(false, (ev && ev.message) ? ev.message : 'el worker falló al iniciar');
+    const buf = PROBE_PNG.slice().buffer;
+    w.postMessage({ id:'probe', buffer:buf, mimeType:'image/png',
+                    targetMime:'image/jpeg', quality:80, maxDim:4096 }, [buf]);
+  });
+}
+
+/* ---------- 2. Escritor ZIP (STORE) ---------- */
+const CRC_TABLE = (function(){
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++){
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(u8){
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function buildZipBlob(entries){
+  const enc = new TextEncoder();
+  const d = new Date();
+  const time = ((d.getHours()&31)<<11) | ((d.getMinutes()&63)<<5) | ((Math.floor(d.getSeconds()/2))&31);
+  const date = (((d.getFullYear()-1980)&127)<<9) | (((d.getMonth()+1)&15)<<5) | (d.getDate()&31);
+  const parts = [], central = [];
+  let offset = 0;
+  for (const e of entries){
+    const nb = enc.encode(e.name);
+    const data = new Uint8Array(e.data);
+    const crc = crc32(data);
+    const lh = new Uint8Array(30 + nb.length), lv = new DataView(lh.buffer);
+    lv.setUint32(0,0x04034b50,true); lv.setUint16(4,20,true); lv.setUint16(6,0x0800,true);
+    lv.setUint16(8,0,true); lv.setUint16(10,time,true); lv.setUint16(12,date,true);
+    lv.setUint32(14,crc,true); lv.setUint32(18,data.length,true); lv.setUint32(22,data.length,true);
+    lv.setUint16(26,nb.length,true); lv.setUint16(28,0,true);
+    lh.set(nb,30);
+    parts.push(lh, data);
+    const cd = new Uint8Array(46 + nb.length), cv = new DataView(cd.buffer);
+    cv.setUint32(0,0x02014b50,true); cv.setUint16(4,20,true); cv.setUint16(6,20,true);
+    cv.setUint16(8,0x0800,true); cv.setUint16(10,0,true); cv.setUint16(12,time,true);
+    cv.setUint16(14,date,true); cv.setUint32(16,crc,true);
+    cv.setUint32(20,data.length,true); cv.setUint32(24,data.length,true);
+    cv.setUint16(28,nb.length,true); cv.setUint16(30,0,true); cv.setUint16(32,0,true);
+    cv.setUint16(34,0,true); cv.setUint16(36,0,true); cv.setUint32(38,0,true);
+    cv.setUint32(42,offset,true);
+    cd.set(nb,46);
+    central.push(cd);
+    offset += lh.length + data.length;
+  }
+  const cdOffset = offset;
+  let cdSize = 0;
+  for (const c of central){ parts.push(c); cdSize += c.length; }
+  const eo = new Uint8Array(22), ev = new DataView(eo.buffer);
+  ev.setUint32(0,0x06054b50,true); ev.setUint16(4,0,true); ev.setUint16(6,0,true);
+  ev.setUint16(8,entries.length,true); ev.setUint16(10,entries.length,true);
+  ev.setUint32(12,cdSize,true); ev.setUint32(16,cdOffset,true); ev.setUint16(20,0,true);
+  parts.push(eo);
+  return new Blob(parts, {type:'application/zip'});
+}
+
+/* ---------- 3. Estado ---------- */
+const EXT = {'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'};
+let items = [];
+let loadQueue = [], loadActive = 0;
+let compQueue = [], compActive = new Map();
+let cancelled = false;
+let batchSize = 0;
+
+const cfg = { quality:80, maxDim:4096, mime:'image/jpeg' };
+const cfgKey = () => cfg.quality + '|' + cfg.maxDim + '|' + cfg.mime;
+
+/* Concurrencia automática: núcleos disponibles, reducida con archivos pesados */
+const CORES = navigator.hardwareConcurrency || 2;
+const BASE_CONC = CORES <= 2 ? 1 : (CORES <= 4 ? 2 : 3);
+function conc(){
+  if (ENGINE !== 'worker') return 1;
+  const heavy = items.some(i => i.size > 12 * 1048576);
+  return heavy ? Math.min(BASE_CONC, 2) : BASE_CONC;
+}
+
+/* ---------- 4. DOM ---------- */
+const $ = id => document.getElementById(id);
+const dz=$('dz'), fi=$('fi'), tb=$('tb'), tw=$('tw'), empty=$('empty'), ws=$('ws'),
+      gbar=$('gbar'), gLabel=$('gbar-label'), gCount=$('gbar-count'), gfill=$('gfill'),
+      primary=$('primary'), secondary=$('secondary'), clearAll=$('clear-all'),
+      qSlider=$('q-slider'), qNum=$('q-num'), dimNum=$('dim-num'),
+      qualityBlock=$('quality-block'), qHelp=$('q-help'), toasts=$('toasts'),
+      actTitle=$('act-title'),
+      l1=$('l1'),v1=$('v1'),l2=$('l2'),v2=$('v2'),l3=$('l3'),v3=$('v3'),l4=$('l4'),v4=$('v4');
+
+/* ---------- 5. Utilidades ---------- */
+let seq = 0;
+const uid = () => 'i' + (++seq);
+function fmt(b){
+  const n = Math.abs(b);
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+  return (n/1048576).toFixed(2) + ' MB';
+}
+/* Diferencia de peso con signo. Nunca se aplasta a cero:
+   si el archivo creció, se dice que creció. */
+function delta(orig, out){
+  const pct = Math.round((1 - out/orig) * 100);
+  const grew = out > orig;
+  return { grew, pct: Math.abs(pct), bytes: Math.abs(orig - out),
+           sign: Math.abs(pct) === 0 ? '' : (grew ? '+' : '\u2212') };
+}
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                  .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function toast(msg){
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg; t.title = msg;
+  toasts.appendChild(t);
+  setTimeout(() => t.remove(), 4900);
+}
+const get = id => items.find(i => i.id === id);
+
+/* ---------- 6. Ajustes ---------- */
+function updateQualityHelp(){
+  qHelp.textContent = cfg.mime === 'image/png'
+    ? 'En PNG la calidad fija cuántos colores se conservan: ' + colorsFor(cfg.quality) + '.'
+    : 'Mayor valor conserva más detalle y pesa más.';
+}
+qSlider.addEventListener('input', () => { cfg.quality = +qSlider.value; qNum.value = cfg.quality; updateQualityHelp(); render(); });
+qNum.addEventListener('input', () => {
+  const v = Math.min(100, Math.max(1, +qNum.value || 1));
+  cfg.quality = v; qSlider.value = v; updateQualityHelp(); render();
+});
+dimNum.addEventListener('change', () => {
+  cfg.maxDim = Math.min(12000, Math.max(100, +dimNum.value || 100));
+  dimNum.value = cfg.maxDim; render();
+});
+document.querySelectorAll('#fmt .chip').forEach(c => {
+  c.addEventListener('click', () => {
+    document.querySelectorAll('#fmt .chip').forEach(x => x.classList.remove('active'));
+    c.classList.add('active');
+    cfg.mime = c.dataset.fmt;
+    qualityBlock.classList.remove('muted');
+    updateQualityHelp();
+    render();
+  });
+});
+
+/* ---------- 7. Entrada de archivos ---------- */
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); fi.click(); } });
+fi.addEventListener('change', () => { add([...fi.files]); fi.value = ''; });
+
+['dragenter','dragover'].forEach(ev => {
+  dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('over'); });
+  ws.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('over'); });
+});
+['dragleave','drop'].forEach(ev => {
+  dz.addEventListener(ev, () => dz.classList.remove('over'));
+  ws.addEventListener(ev, () => dz.classList.remove('over'));
+});
+dz.addEventListener('drop', e => { e.preventDefault(); add([...e.dataTransfer.files]); });
+ws.addEventListener('drop', e => { e.preventDefault(); add([...e.dataTransfer.files]); });
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => e.preventDefault());
+
+function add(files){
+  const bad = [];
+  let n = 0;
+  files.forEach(f => {
+    if (!f.type || !f.type.startsWith('image/')){ bad.push(f.name); return; }
+    const it = { id:uid(), file:f, name:f.name, size:f.size, state:'loading',
+                 w:0, h:0, result:null, doneKey:null, worker:null, err:'' };
+    items.push(it);
+    loadQueue.push(it.id);
+    addRow(it);
+    n++;
+  });
+  if (bad.length) toast('No es una imagen: ' + bad.slice(0,2).join(', ') + (bad.length > 2 ? ' y ' + (bad.length-2) + ' más' : ''));
+  if (n) { drainLoad(); render(); }
+}
+
+/* ---------- 8. Fase 1: cargar y validar ---------- */
+function drainLoad(){
+  while (loadActive < 3 && loadQueue.length){
+    const it = get(loadQueue.shift());
+    if (!it){ continue; }
+    loadActive++;
+    loadOne(it);
+  }
+}
+function loadOne(it){
+  const url = URL.createObjectURL(it.file);
+  const img = new Image();
+  const finish = () => { URL.revokeObjectURL(url); loadActive--; drainLoad(); render(); };
+  img.onload = () => {
+    it.w = img.naturalWidth; it.h = img.naturalHeight;
+    if (!it.w || !it.h){
+      it.state = 'loadError'; it.err = 'El archivo no contiene una imagen legible';
+      updateRow(it); finish(); return;
+    }
+    try {
+      const side = 64;
+      const cv = document.createElement('canvas');
+      cv.width = side; cv.height = side;
+      const cx = cv.getContext('2d');
+      const s = Math.max(side/it.w, side/it.h);
+      const dw = it.w*s, dh = it.h*s;
+      cx.drawImage(img, (side-dw)/2, (side-dh)/2, dw, dh);
+      it.thumb = cv.toDataURL('image/jpeg', 0.7);
+    } catch(_){ it.thumb = null; }
+    it.state = 'ready';
+    updateRow(it); finish();
+  };
+  img.onerror = () => {
+    it.state = 'loadError';
+    it.err = 'El navegador no pudo abrir este archivo';
+    updateRow(it); finish();
+  };
+  img.src = url;
+}
+
+/* ---------- 9. Fase 2: comprimir ---------- */
+function pending(){
+  const k = cfgKey();
+  return items.filter(i => i.state === 'ready' || (i.state === 'done' && i.doneKey !== k) || i.state === 'error');
+}
+function startCompress(){
+  const list = pending();
+  if (!list.length) return;
+  cancelled = false;
+  batchSize = list.length;
+  list.forEach(i => { i.state = 'queued'; i.err = ''; updateRow(i); });
+  compQueue = list.map(i => i.id);
+  drainComp();
+  render();
+}
+function drainComp(){
+  const limit = conc();
+  while (!cancelled && compActive.size < limit && compQueue.length){
+    const it = get(compQueue.shift());
+    if (!it) continue;
+    it.state = 'compressing';
+    updateRow(it);
+    compressOne(it);
+  }
+  render();
+}
+function slotDone(it){
+  compActive.delete(it.id);
+  if (!cancelled) drainComp(); else render();
+}
+
+/* Garantía: si el formato no cambia y no se redimensionó, nunca se
+   devuelve un archivo más pesado que el que entró. Se conserva el
+   original tal cual. */
+async function applyResult(it, buffer, size, ow, oh){
+  const sameFormat = cfg.mime === it.file.type;
+  const sameDims   = ow === it.w && oh === it.h;
+  it.kept = false;
+  if (sameFormat && sameDims && size >= it.size){
+    buffer = await it.file.arrayBuffer();
+    size   = buffer.byteLength;
+    it.kept = true;
+  }
+  it.result = buffer; it.outSize = size; it.outW = ow; it.outH = oh;
+  it.outMime = cfg.mime; it.doneKey = cfgKey(); it.state = 'done';
+}
+
+function compressOne(it){
+  if (ENGINE !== 'worker'){ compressMain(it); return; }
+  const w = new Worker(WORKER_URL);
+  it.worker = w;
+  compActive.set(it.id, w);
+  w.onmessage = ev => {
+    const m = ev.data;
+    if (m.type === 'progress'){ setProgress(it, m.percent); return; }
+    w.terminate(); it.worker = null;
+    if (m.type === 'done'){
+      applyResult(it, m.buffer, m.size, m.width, m.height)
+        .then(() => { updateRow(it); slotDone(it); });
+      return;
+    }
+    it.state = 'error'; it.err = m.message || 'No se pudo comprimir';
+    toast(it.name + ': ' + it.err);
+    updateRow(it); slotDone(it);
+  };
+  w.onerror = ev => {
+    w.terminate(); it.worker = null;
+    it.state = 'error';
+    it.err = (ev && ev.message) ? ev.message : 'El proceso de compresión falló';
+    toast(it.name + ': ' + it.err);
+    updateRow(it); slotDone(it);
+  };
+  it.file.arrayBuffer().then(buf => {
+    if (it.state !== 'compressing'){ return; }
+    w.postMessage({ id:it.id, buffer:buf, mimeType:it.file.type,
+                    targetMime:cfg.mime, quality:cfg.quality, maxDim:cfg.maxDim,
+                    maxColors:colorsFor(cfg.quality) }, [buf]);
+  }).catch(err => {
+    it.state = 'error'; it.err = 'No se pudo leer el archivo del disco';
+    toast(it.name + ': ' + it.err);
+    updateRow(it); slotDone(it);
+  });
+}
+
+/* Reserva para navegadores sin OffscreenCanvas */
+function compressMain(it){
+  compActive.set(it.id, null);
+  setProgress(it, 10);
+  const url = URL.createObjectURL(it.file);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    setProgress(it, 45);
+    try {
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (w > cfg.maxDim || h > cfg.maxDim){
+        const s = Math.min(cfg.maxDim/w, cfg.maxDim/h);
+        w = Math.max(1, Math.round(w*s)); h = Math.max(1, Math.round(h*s));
+      }
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const cx = cv.getContext('2d');
+      cx.imageSmoothingQuality = 'high';
+      if (cfg.mime === 'image/jpeg'){ cx.fillStyle = '#ffffff'; cx.fillRect(0,0,w,h); }
+      cx.drawImage(img, 0, 0, w, h);
+      setProgress(it, 70);
+      cv.toBlob(blob => {
+        if (!blob){
+          it.state = 'error'; it.err = 'Este navegador no guarda en ' + cfg.mime;
+          toast(it.name + ': ' + it.err); updateRow(it); slotDone(it); return;
+        }
+        if (blob.type && blob.type !== cfg.mime){
+          it.state = 'error'; it.err = 'Este navegador no guarda en ' + cfg.mime;
+          toast(it.name + ': ' + it.err); updateRow(it); slotDone(it); return;
+        }
+        blob.arrayBuffer().then(async ab => {
+          if (cfg.mime === 'image/png' && typeof CompressionStream === 'function'){
+            try {
+              const px = cx.getImageData(0, 0, w, h).data;
+              const qz = await pqEncodePNG(px, w, h, colorsFor(cfg.quality));
+              if (qz && qz.byteLength < ab.byteLength) ab = qz.buffer;
+            } catch(_){}
+          }
+          await applyResult(it, ab, ab.byteLength, w, h);
+          setProgress(it, 100); updateRow(it); slotDone(it);
+        });
+      }, cfg.mime, cfg.mime === 'image/png' ? undefined : cfg.quality/100);
+    } catch(err){
+      it.state = 'error'; it.err = err.message || 'No se pudo comprimir';
+      toast(it.name + ': ' + it.err); updateRow(it); slotDone(it);
+    }
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    it.state = 'error'; it.err = 'El navegador no pudo abrir este archivo';
+    toast(it.name + ': ' + it.err); updateRow(it); slotDone(it);
+  };
+  img.src = url;
+}
+
+function cancelAll(){
+  cancelled = true;
+  compQueue.length = 0;
+  compActive.forEach((w, id) => {
+    if (w) w.terminate();
+    const it = get(id);
+    if (it){ it.state = it.result ? 'done' : 'ready'; it.worker = null; updateRow(it); }
+  });
+  compActive.clear();
+  toast('Compresión detenida.');
+  render();
+}
+
+/* ---------- 10. Filas ---------- */
+function addRow(it){
+  empty.style.display = 'none';
+  tw.style.display = '';
+  const tr = document.createElement('tr');
+  tr.id = 'r' + it.id;
+  tr.innerHTML =
+    '<td class="c-thumb"><div class="thumb-ph load" data-slot="thumb">&#9633;</div></td>' +
+    '<td class="c-name"><div class="namecell">' +
+      '<div class="fname" title="' + esc(it.name) + '">' + esc(it.name) + '</div>' +
+      '<div class="fsub" data-slot="sub">Cargando</div>' +
+      '<div class="ptrack" data-slot="track"><div class="pfill" data-slot="fill"></div></div>' +
+    '</div></td>' +
+    '<td class="c-num"><span class="sz">' + fmt(it.size) + '</span></td>' +
+    '<td class="c-num"><span class="red wait" data-slot="red">&mdash;</span></td>' +
+    '<td class="c-num"><span class="sz" data-slot="final">&mdash;</span></td>' +
+    '<td class="c-act">' +
+      '<button class="ib" data-slot="dl" title="Descargar esta imagen" disabled>&#8595;</button>' +
+      '<button class="ib rm" data-slot="rm" title="Quitar de la lista">&#215;</button>' +
+    '</td>';
+  tb.appendChild(tr);
+  tr.querySelector('[data-slot=dl]').addEventListener('click', () => downloadOne(it.id));
+  tr.querySelector('[data-slot=rm]').addEventListener('click', () => removeOne(it.id));
+  updateRow(it);
+}
+
+function slot(it, name){
+  const tr = document.getElementById('r' + it.id);
+  return tr ? tr.querySelector('[data-slot=' + name + ']') : null;
+}
+function setProgress(it, pct){
+  const track = slot(it,'track'), fill = slot(it,'fill'), sub = slot(it,'sub');
+  if (track) track.classList.add('on');
+  if (fill){ fill.classList.remove('indet'); fill.style.width = pct + '%'; }
+  if (sub) sub.textContent = 'Comprimiendo ' + pct + '%';
+}
+
+function updateRow(it){
+  const tr = document.getElementById('r' + it.id);
+  if (!tr) return;
+  const thumbCell = tr.querySelector('.c-thumb');
+  const sub = slot(it,'sub'), track = slot(it,'track'), fill = slot(it,'fill'),
+        red = slot(it,'red'), fin = slot(it,'final'), dl = slot(it,'dl');
+
+  /* Miniatura */
+  if (it.thumb && !thumbCell.querySelector('img')){
+    thumbCell.innerHTML = '<img class="thumb" data-slot="thumb" alt="" src="' + it.thumb + '">';
+  } else if (it.state === 'loadError'){
+    thumbCell.innerHTML = '<div class="thumb-ph" data-slot="thumb">!</div>';
+  }
+
+  sub.className = 'fsub';
+  track.classList.remove('on');
+  fill.className = 'pfill';
+  fill.style.width = '0%';
+  red.className = 'red wait';
+  red.innerHTML = '&mdash;';
+  fin.innerHTML = '&mdash;';
+  dl.disabled = true;
+
+  const dims = it.w && it.h ? it.w + ' &times; ' + it.h : '';
+  const stale = it.state === 'done' && it.doneKey !== cfgKey();
+
+  switch (it.state){
+    case 'loading':
+      sub.textContent = 'Cargando';
+      track.classList.add('on');
+      fill.classList.add('indet');
+      break;
+    case 'loadError':
+      sub.className = 'fsub err';
+      sub.textContent = it.err;
+      break;
+    case 'ready':
+      sub.innerHTML = dims + ' &middot; lista para comprimir';
+      break;
+    case 'queued':
+      sub.innerHTML = dims + ' &middot; en cola';
+      track.classList.add('on');
+      break;
+    case 'compressing':
+      sub.textContent = 'Comprimiendo';
+      track.classList.add('on');
+      break;
+    case 'done': {
+      const d = delta(it.size, it.outSize);
+      sub.innerHTML = it.outW + ' &times; ' + it.outH
+        + (it.kept ? ' &middot; ya estaba optimizada, se conserva el original' : '')
+        + (stale ? ' &middot; los ajustes cambiaron' : '');
+      track.classList.add('on');
+      fill.classList.add('ok');
+      fill.style.width = '100%';
+      red.className = 'red' + (d.grew ? ' up' : '') + (stale ? ' stale' : '');
+      red.textContent = d.sign + d.pct + '%';
+      red.title = d.grew
+        ? 'Pesa ' + fmt(d.bytes) + ' más que el original'
+        : 'Pesa ' + fmt(d.bytes) + ' menos que el original';
+      fin.textContent = fmt(it.outSize);
+      dl.disabled = false;
+      break;
+    }
+    case 'error':
+      sub.className = 'fsub err';
+      sub.textContent = it.err;
+      track.classList.add('on');
+      fill.classList.add('bad');
+      fill.style.width = '100%';
+      red.className = 'red bad';
+      red.textContent = 'Error';
+      break;
+  }
+}
+
+function removeOne(id){
+  const it = get(id);
+  if (!it) return;
+  if (it.worker){ it.worker.terminate(); it.worker = null; }
+  const wasActive = compActive.has(id);
+  compActive.delete(id);
+  compQueue = compQueue.filter(x => x !== id);
+  loadQueue = loadQueue.filter(x => x !== id);
+  items = items.filter(x => x.id !== id);
+  const tr = document.getElementById('r' + id);
+  if (tr) tr.remove();
+  if (!items.length){ tw.style.display = 'none'; empty.style.display = ''; }
+  if (wasActive) drainComp(); else render();
+}
+clearAll.addEventListener('click', () => {
+  compActive.forEach(w => { if (w) w.terminate(); });
+  compActive.clear();
+  compQueue.length = 0; loadQueue.length = 0; loadActive = 0;
+  items = []; tb.innerHTML = '';
+  tw.style.display = 'none'; empty.style.display = '';
+  render();
+});
+
+/* ---------- 11. Descargas ---------- */
+function outName(it, taken){
+  const base = it.name.replace(/\.[^.]+$/, '');
+  const ext = EXT[it.outMime || cfg.mime] || '.jpg';
+  let n = base + ext, k = 2;
+  if (taken){ while (taken.has(n)){ n = base + '-' + (k++) + ext; } taken.add(n); }
+  return n;
+}
+function saveBlob(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 8000);
+}
+function downloadOne(id){
+  const it = get(id);
+  if (!it || !it.result) return;
+  saveBlob(new Blob([it.result], {type:it.outMime || cfg.mime}), outName(it));
+}
+function downloadZip(){
+  const done = items.filter(i => i.state === 'done' && i.result);
+  if (!done.length) return;
+  secondary.disabled = true; primary.disabled = true;
+  try {
+    const taken = new Set();
+    const entries = done.map(i => ({ name:'ksvt-comprimidas/' + outName(i, taken), data:i.result }));
+    saveBlob(buildZipBlob(entries), 'ksvt-comprimidas.zip');
+  } catch(err){
+    toast('No se pudo armar el ZIP: ' + (err.message || 'error desconocido'));
+  }
+  render();
+}
+
+/* ---------- 12. Acciones principales ---------- */
+primary.addEventListener('click', () => {
+  if (primary.dataset.act === 'cancel') cancelAll();
+  else if (primary.dataset.act === 'zip') downloadZip();
+  else startCompress();
+});
+secondary.addEventListener('click', () => {
+  if (secondary.dataset.act === 'zip') downloadZip();
+});
+
+/* ---------- 13. Render del panel ---------- */
+function render(){
+  const total = items.length;
+  const loading = items.filter(i => i.state === 'loading').length;
+  const working = compActive.size > 0 || compQueue.length > 0;
+  const doneList = items.filter(i => i.state === 'done' && i.result);
+  const pend = pending();
+
+  clearAll.style.display = total ? '' : 'none';
+
+  /* Barra global */
+  if (working){
+    const inFlight = compActive.size + compQueue.length;
+    const doneNow = Math.max(0, batchSize - inFlight);
+    gbar.classList.add('on');
+    gLabel.textContent = 'Comprimiendo';
+    gCount.textContent = doneNow + ' / ' + batchSize;
+    gfill.style.width = batchSize ? Math.round(doneNow / batchSize * 100) + '%' : '0%';
+  } else if (loading){
+    gbar.classList.add('on');
+    gLabel.textContent = 'Cargando imágenes';
+    gCount.textContent = (total - loading) + ' / ' + total;
+    gfill.style.width = total ? Math.round((total - loading) / total * 100) + '%' : '0%';
+  } else {
+    gbar.classList.remove('on');
+  }
+
+  /* Resumen §7 — antes de comprimir declara el costo, después el resultado */
+  if (doneList.length){
+    const o = doneList.reduce((s,i) => s + i.size, 0);
+    const c = doneList.reduce((s,i) => s + i.outSize, 0);
+    const d = delta(o, c);
+    actTitle.textContent = 'Salida';
+    l1.textContent = 'Imágenes listas'; v1.textContent = doneList.length;
+    l2.textContent = 'Peso original';   v2.textContent = fmt(o);
+    l3.textContent = 'Peso final';      v3.textContent = fmt(c);
+    l4.textContent = d.grew ? 'Aumento' : 'Ahorro';
+    v4.className = 'sval ' + (d.grew ? 'up' : 'green');
+    v4.textContent = d.sign + d.pct + '% (' + fmt(d.bytes) + ')';
+  } else {
+    const ready = items.filter(i => i.state === 'ready');
+    const w = ready.reduce((s,i) => s + i.size, 0);
+    actTitle.textContent = 'Salida';
+    l1.textContent = 'Por comprimir';  v1.textContent = pend.length;
+    v4.className = 'sval green';
+    l2.textContent = 'Peso original';  v2.textContent = w ? fmt(w) : '\u2014';
+    l3.textContent = 'Peso final';     v3.innerHTML = '&mdash;';
+    l4.textContent = 'Ahorro';         v4.innerHTML = '&mdash;';
+  }
+
+  /* Una sola acción en acento por vista §2 */
+  if (working){
+    primary.dataset.act = 'cancel';
+    primary.className = 'b wide';
+    primary.textContent = 'Cancelar';
+    primary.disabled = false;
+    secondary.style.display = 'none';
+  } else if (pend.length){
+    primary.dataset.act = 'compress';
+    primary.className = 'b go wide';
+    primary.textContent = 'Comprimir ' + pend.length + (pend.length === 1 ? ' imagen' : ' imágenes');
+    primary.disabled = false;
+    if (doneList.length){
+      secondary.style.display = '';
+      secondary.dataset.act = 'zip';
+      secondary.disabled = false;
+      secondary.className = 'b wide deliver';
+      secondary.textContent = '\u2193  Descargar ' + doneList.length + ' en ZIP';
+    } else secondary.style.display = 'none';
+  } else if (doneList.length){
+    primary.dataset.act = 'zip';
+    primary.className = 'b go wide deliver';
+    primary.textContent = '\u2193  Descargar todo en ZIP (' + doneList.length + ')';
+    primary.disabled = false;
+    secondary.style.display = 'none';
+  } else {
+    primary.dataset.act = 'compress';
+    primary.className = 'b go wide';
+    primary.textContent = loading ? 'Cargando imágenes' : 'Comprimir';
+    primary.disabled = true;
+    secondary.style.display = 'none';
+  }
+}
+
+render();
+
+/* Elegir motor midiendo, no adivinando */
+probeWorker().then(res => {
+  ENGINE = res.ok ? 'worker' : 'main';
+  engineReason = res.why;
+  if (!res.ok) console.info('KSVT: compresión en hilo principal —', res.why);
+});
+</script>
+</body>
+</html>
